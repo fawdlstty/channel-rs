@@ -2,5 +2,12 @@
 name = "channel"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+repository = "https://github.com/fawdlstty/channel-rs"
+homepage = "https://github.com/fawdlstty/channel-rs"
+description = "Rust advanced queue library"
+keywords = ["channel", "queue", "dispatch", "sender", "receiver"]
+categories = ["algorithms", "concurrency", "data-structures"]
 
 [dependencies]
