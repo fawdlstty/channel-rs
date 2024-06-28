@@ -5,6 +5,8 @@ version = 3
 [[package]]
 name = "channel"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de85749ef3774510273b0ab7f552233ccf389096f01e4b0c4e0702b30168ba2"
 
 [[package]]
 name = "example"
