@@ -10,6 +10,8 @@ This library is mainly for queue advanced application scenarios, used to simplif
 
 ## Manual
 
+Install: Run `cargo add channel` in the project directory
+
 ### Unbounded queue
 
 Features: Unlimited cache capacity, producers and consumers can have multiple, a message can only be consumed once
