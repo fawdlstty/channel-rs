@@ -1,18 +1,18 @@
 # channel-rs
 
-English | [简体中文](README.zh_CN.md)
+[English](README.md) | 简体中文
 
-Rust advanced queue library
+Rust 高级队列库
 
-## Summary
+## 简述
 
-This library is mainly for queue advanced application scenarios, used to simplify logical code.
+此库主要面向于队列的高级应用场景，用于简化逻辑代码。
 
-## Manual
+## 使用手册
 
-### Unbounded queue
+### 无边界队列
 
-Features: Unlimited cache capacity, producers and consumers can have multiple, a message can only be consumed once
+特性：无限缓存容量，生产者和消费者可以有多个，一条消息只能被消费一次
 
 ```rust
 let (tx, rx) = channel::new_unbounded();
@@ -26,9 +26,9 @@ assert_eq!(rx2.recv().unwrap(), 4);
 assert_eq!(rx.recv().unwrap(), 5);
 ```
 
-### Bounded queue
+### 有边界队列
 
-Features: Only the specified amount is cached, beyond which the earliest data is overwritten, producers and consumers can have multiple, and a message can only be consumed once
+特性：只缓存指定的数量，超过则覆盖最早的数据，生产者和消费者可以有多个，一条消息只能被消费一次
 
 ```rust
 let (tx, rx) = channel::new_bounded(4);
@@ -42,16 +42,13 @@ assert_eq!(rx2.recv().unwrap(), 5);
 assert!(rx.recv().is_none());
 ```
 
-### Unbounded dispatch queue
+### 无边界分发队列
 
-Features: The maximum number of caches is theoretical, there can be multiple producers and consumers, and any message will be consumed by all consumers
+特性：无限缓存容量，生产者和消费者可以有多个，任一条消息将被所有消费者所消费
 
 ```rust
 let (tx, rx) = channel::new_unbounded_dispatch();
-tx.send(1);
-tx.send(2);
-tx.send(3);
-tx.send(4);
+tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
 assert_eq!(rx.recv().unwrap(), 1);
@@ -63,16 +60,13 @@ assert_eq!(rx2.recv().unwrap(), 1);
 assert_eq!(rx2.recv().unwrap(), 2);
 ```
 
-### Bounded dispatch queue
+### 有边界分发队列
 
-Features: Only the specified amount of cache, more than overwrite the earliest data, producers and consumers can have multiple, any message as long as it is not overwritten will be consumed by all consumers
+特性：只缓存指定的数量，超过则覆盖最早的数据，生产者和消费者可以有多个，任一条消息只要没被覆盖则将被所有消费者所消费
 
 ```rust
 let (tx, rx) = channel::new_bounded_dispatch(4);
-tx.send(1);
-tx.send(2);
-tx.send(3);
-tx.send(4);
+tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
 assert_eq!(rx.recv().unwrap(), 2);
@@ -86,4 +80,4 @@ assert_eq!(rx2.recv().unwrap(), 4);
 assert_eq!(rx2.recv().unwrap(), 5);
 ```
 
-### TODO 、len、is_empty、recv_items、recv_items_weak
+### TODO len、is_empty、recv_items、recv_items_weak
