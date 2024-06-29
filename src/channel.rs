@@ -65,9 +65,7 @@ impl<T: Clone + Sized> BaseBuffer<T> {
                 } else {
                     return ret;
                 };
-                for _ in 0..read_count {
-                    ret.push(self.buf.remove(0));
-                }
+                ret.extend(self.buf.drain(0..read_count));
             }
         }
         ret
@@ -94,9 +92,7 @@ impl<T> BaseBuffer<T> {
         if let Some(rever_poses) = self.rever_poses.as_mut() {
             if let Some(min_pos) = rever_poses.values().min().cloned().take() {
                 if min_pos > 0 {
-                    for _ in 0..min_pos {
-                        self.buf.remove(0);
-                    }
+                    self.buf.drain(0..min_pos);
                     for (_, val) in rever_poses.iter_mut() {
                         *val -= min_pos;
                     }
@@ -198,6 +194,10 @@ impl<T> Drop for Sender<T> {
             unsafe { ptr::drop_in_place(self.chan.as_ptr()) };
         }
     }
+}
+
+pub trait GetTimestampExt {
+    fn get_timestamp(&self) -> u64;
 }
 
 pub struct Receiver<T> {
