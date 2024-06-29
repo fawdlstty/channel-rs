@@ -70,5 +70,3 @@ assert_eq!(rx2.recv_items(3), vec![2, 3, 4]);
 assert_eq!(rx.recv_items_weak(3), vec![5]);
 assert_eq!(rx2.recv_items_weak(3), vec![5]);
 ```
-
-### TODO 、len、is_empty、recv_items、recv_items_weak
