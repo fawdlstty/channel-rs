@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-channel = "0.1.0"
+channel = "0.1.1"
