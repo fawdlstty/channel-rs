@@ -20,11 +20,11 @@ Rust 高级队列库
 let (tx, rx) = channel::new_unbounded();
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
-assert_eq!(rx.len(), 5);
+let a = rx.len();           // 5
 let rx2 = rx.clone();
-assert_eq!(rx.recv().unwrap(), 1);
-assert_eq!(rx2.recv_items(3), vec![2, 3, 4]);
-assert_eq!(rx.recv().unwrap(), 5);
+let b = rx.recv().unwrap(); // 1
+let c = rx2.recv_items(3);  // vec![2, 3, 4]
+let d = rx.recv().unwrap(); // 5
 ```
 
 ### 有边界队列
@@ -36,9 +36,9 @@ let (tx, rx) = channel::new_bounded(4);
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
-assert_eq!(rx.recv_items(2), vec![2, 3]);
-assert_eq!(rx2.recv_items(2), vec![4, 5]);
-assert!(rx.is_empty());
+let a = rx.recv_items(2);  // vec![2, 3]
+let b = rx2.recv_items(2); // vec![4, 5]
+let c = rx.is_empty();     // true
 ```
 
 ### 无边界分发队列
@@ -50,10 +50,10 @@ let (tx, rx) = channel::new_unbounded_dispatch();
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
-assert_eq!(rx.recv_items(3), vec![1, 2, 3]);
-assert_eq!(rx2.recv_items(3), vec![1, 2, 3]);
-assert_eq!(rx.recv_items_weak(3), vec![4, 5]);
-assert_eq!(rx2.recv_items_weak(3), vec![4, 5]);
+let a = rx.recv_items(3);       // vec![1, 2, 3]
+let b = rx2.recv_items(3);      // vec![1, 2, 3]
+let c = rx.recv_items_weak(3);  // vec![4, 5]
+let d = rx2.recv_items_weak(3); // vec![4, 5]
 ```
 
 ### 有边界分发队列
@@ -65,8 +65,8 @@ let (tx, rx) = channel::new_bounded_dispatch(4);
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
-assert_eq!(rx.recv_items(3), vec![2, 3, 4]);
-assert_eq!(rx2.recv_items(3), vec![2, 3, 4]);
-assert_eq!(rx.recv_items_weak(3), vec![5]);
-assert_eq!(rx2.recv_items_weak(3), vec![5]);
+let a = rx.recv_items(3);       // vec![2, 3, 4]
+let a = rx2.recv_items(3);      // vec![2, 3, 4]
+let a = rx.recv_items_weak(3);  // vec![5]
+let a = rx2.recv_items_weak(3); // vec![5]
 ```

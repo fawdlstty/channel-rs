@@ -5,6 +5,7 @@ fn test_it_works() {
     assert!(true);
 }
 
+#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_unbounded() {
     let (tx, rx) = channel::new_unbounded();
@@ -17,6 +18,7 @@ fn test_new_unbounded() {
     assert_eq!(rx.recv().unwrap(), 5);
 }
 
+#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_bounded() {
     let (tx, rx) = channel::new_bounded(4);
@@ -28,6 +30,7 @@ fn test_new_bounded() {
     assert!(rx.is_empty());
 }
 
+#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_unbounded_dispatch() {
     let (tx, rx) = channel::new_unbounded_dispatch();
@@ -40,6 +43,7 @@ fn test_new_unbounded_dispatch() {
     assert_eq!(rx2.recv_items_weak(3), vec![4, 5]);
 }
 
+#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_bounded_dispatch() {
     let (tx, rx) = channel::new_bounded_dispatch(4);

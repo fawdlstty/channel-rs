@@ -13,4 +13,5 @@ fn main() {
     assert_eq!(rx.recv().unwrap(), 5);
     assert_eq!(rx2.recv().unwrap(), 1);
     assert_eq!(rx2.recv().unwrap(), 2);
+    println!("ok");
 }

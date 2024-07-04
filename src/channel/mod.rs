@@ -1,3 +1,8 @@
+#[cfg(feature = "time-series")]
+pub mod time_series;
+#[cfg(feature = "time-series")]
+use time_series::{GetDataTimeExt, TimeSeriesBuffer};
+
 use std::collections::HashMap;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,16 +30,14 @@ impl<T: Clone + Sized> UnboundedBuffer<T> {
     }
 
     pub fn recv_count(&mut self, recv_count: usize, force_count: bool) -> Vec<T> {
-        let mut ret = vec![];
         let read_count = if recv_count <= self.buf.len() {
             recv_count
         } else if !force_count && self.buf.len() > 0 {
             self.buf.len() - recv_count
         } else {
-            return ret;
+            return vec![];
         };
-        ret.extend(self.buf.drain(0..read_count));
-        ret
+        self.buf.drain(0..read_count).collect()
     }
 }
 
@@ -77,16 +80,14 @@ impl<T: Clone + Sized> BoundedBuffer<T> {
     }
 
     pub fn recv_count(&mut self, recv_count: usize, force_count: bool) -> Vec<T> {
-        let mut ret = vec![];
         let read_count = if recv_count <= self.buf.len() {
             recv_count
         } else if !force_count && self.buf.len() > 0 {
             self.buf.len() - recv_count
         } else {
-            return ret;
+            return vec![];
         };
-        ret.extend(self.buf.drain(0..read_count));
-        ret
+        self.buf.drain(0..read_count).collect()
     }
 }
 
@@ -305,8 +306,11 @@ pub(crate) enum AnyBuffer<T> {
     BoundedBuffer(BoundedBuffer<T>),
     UnboundedDispatchBuffer(UnboundedDispatchBuffer<T>),
     BoundedDispatchBuffer(BoundedDispatchBuffer<T>),
+    #[cfg(feature = "time-series")]
+    TimeSeriesBuffer(TimeSeriesBuffer<T>),
 }
 
+#[cfg(not(feature = "time-series"))]
 impl<T: Clone + Sized> AnyBuffer<T> {
     pub fn send(&mut self, data: T) {
         match self {
@@ -354,6 +358,58 @@ impl<T: Clone + Sized> AnyBuffer<T> {
     }
 }
 
+#[cfg(feature = "time-series")]
+impl<T: Clone + Sized + GetDataTimeExt> AnyBuffer<T> {
+    pub fn send(&mut self, data: T) {
+        match self {
+            AnyBuffer::UnboundedBuffer(buf) => buf.send(data),
+            AnyBuffer::BoundedBuffer(buf) => buf.send(data),
+            AnyBuffer::UnboundedDispatchBuffer(buf) => buf.send(data),
+            AnyBuffer::BoundedDispatchBuffer(buf) => buf.send(data),
+            AnyBuffer::TimeSeriesBuffer(buf) => buf.send(data),
+        }
+    }
+
+    pub fn send_items(&mut self, data: Vec<T>) {
+        match self {
+            AnyBuffer::UnboundedBuffer(buf) => buf.send_items(data),
+            AnyBuffer::BoundedBuffer(buf) => buf.send_items(data),
+            AnyBuffer::UnboundedDispatchBuffer(buf) => buf.send_items(data),
+            AnyBuffer::BoundedDispatchBuffer(buf) => buf.send_items(data),
+            AnyBuffer::TimeSeriesBuffer(buf) => buf.send_items(data),
+        }
+    }
+
+    pub fn recv(&mut self, recver_index: usize) -> Option<T> {
+        match self {
+            AnyBuffer::UnboundedBuffer(buf) => buf.recv(),
+            AnyBuffer::BoundedBuffer(buf) => buf.recv(),
+            AnyBuffer::UnboundedDispatchBuffer(buf) => buf.recv(recver_index),
+            AnyBuffer::BoundedDispatchBuffer(buf) => buf.recv(recver_index),
+            AnyBuffer::TimeSeriesBuffer(buf) => buf.recv(),
+        }
+    }
+
+    pub fn recv_count(
+        &mut self,
+        recver_index: usize,
+        recv_count: usize,
+        force_count: bool,
+    ) -> Vec<T> {
+        match self {
+            AnyBuffer::UnboundedBuffer(buf) => buf.recv_count(recv_count, force_count),
+            AnyBuffer::BoundedBuffer(buf) => buf.recv_count(recv_count, force_count),
+            AnyBuffer::UnboundedDispatchBuffer(buf) => {
+                buf.recv_count(recver_index, recv_count, force_count)
+            }
+            AnyBuffer::BoundedDispatchBuffer(buf) => {
+                buf.recv_count(recver_index, recv_count, force_count)
+            }
+            AnyBuffer::TimeSeriesBuffer(buf) => buf.recv_count(recv_count, force_count),
+        }
+    }
+}
+
 impl<T> AnyBuffer<T> {
     pub fn new(bounded: Option<usize>, dispatch: bool) -> Self {
         match (bounded, dispatch) {
@@ -372,6 +428,8 @@ impl<T> AnyBuffer<T> {
             AnyBuffer::BoundedBuffer(buf) => buf.len(),
             AnyBuffer::UnboundedDispatchBuffer(buf) => buf.len(recver_index),
             AnyBuffer::BoundedDispatchBuffer(buf) => buf.len(recver_index),
+            #[cfg(feature = "time-series")]
+            AnyBuffer::TimeSeriesBuffer(buf) => buf.len(),
         }
     }
 
@@ -381,6 +439,8 @@ impl<T> AnyBuffer<T> {
             AnyBuffer::BoundedBuffer(_) => {}
             AnyBuffer::UnboundedDispatchBuffer(buf) => buf.new_receiver(recver_index),
             AnyBuffer::BoundedDispatchBuffer(buf) => buf.new_receiver(recver_index),
+            #[cfg(feature = "time-series")]
+            AnyBuffer::TimeSeriesBuffer(_) => {}
         }
     }
 
@@ -390,6 +450,8 @@ impl<T> AnyBuffer<T> {
             AnyBuffer::BoundedBuffer(_) => {}
             AnyBuffer::UnboundedDispatchBuffer(buf) => buf.drop_receiver(recver_index),
             AnyBuffer::BoundedDispatchBuffer(buf) => buf.drop_receiver(recver_index),
+            #[cfg(feature = "time-series")]
+            AnyBuffer::TimeSeriesBuffer(_) => {}
         }
     }
 }
@@ -418,7 +480,23 @@ pub struct Sender<T> {
     chan: NonNull<Channel<T>>,
 }
 
+#[cfg(not(feature = "time-series"))]
 impl<T: Clone + Sized> Sender<T> {
+    pub fn send(&self, data: T) {
+        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
+        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        buf.send(data);
+    }
+
+    pub fn send_items(&self, data: Vec<T>) {
+        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
+        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        buf.send_items(data);
+    }
+}
+
+#[cfg(feature = "time-series")]
+impl<T: Clone + Sized + GetDataTimeExt> Sender<T> {
     pub fn send(&self, data: T) {
         let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
         let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
@@ -463,21 +541,12 @@ pub struct Receiver<T> {
     index: usize,
 }
 
+#[cfg(not(feature = "time-series"))]
 impl<T: Clone + Sized> Receiver<T> {
     pub fn recv(&self) -> Option<T> {
         let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
         let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
         buf.recv(self.index)
-    }
-
-    pub fn len(&self) -> usize {
-        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
-        buf.len(self.index)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
-        buf.len(self.index) == 0
     }
 
     pub fn recv_items(&self, count: usize) -> Vec<T> {
@@ -490,6 +559,39 @@ impl<T: Clone + Sized> Receiver<T> {
         let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
         let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
         buf.recv_count(self.index, max_count, false)
+    }
+}
+
+#[cfg(feature = "time-series")]
+impl<T: Clone + Sized + GetDataTimeExt> Receiver<T> {
+    pub fn recv(&self) -> Option<T> {
+        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
+        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        buf.recv(self.index)
+    }
+
+    pub fn recv_items(&self, count: usize) -> Vec<T> {
+        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
+        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        buf.recv_count(self.index, count, true)
+    }
+
+    pub fn recv_items_weak(&self, max_count: usize) -> Vec<T> {
+        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
+        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        buf.recv_count(self.index, max_count, false)
+    }
+}
+
+impl<T> Receiver<T> {
+    pub fn len(&self) -> usize {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.len(self.index)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.len(self.index) == 0
     }
 }
 
