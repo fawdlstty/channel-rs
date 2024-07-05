@@ -1,11 +1,13 @@
-use crate as channel;
+use crate::utils::time_util::NaiveDateTimeExt;
+use crate::{self as channel};
+use chrono::NaiveDateTime;
+use std::{thread::sleep, time::Duration};
 
 #[test]
 fn test_it_works() {
     assert!(true);
 }
 
-#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_unbounded() {
     let (tx, rx) = channel::new_unbounded();
@@ -18,7 +20,6 @@ fn test_new_unbounded() {
     assert_eq!(rx.recv().unwrap(), 5);
 }
 
-#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_bounded() {
     let (tx, rx) = channel::new_bounded(4);
@@ -30,7 +31,6 @@ fn test_new_bounded() {
     assert!(rx.is_empty());
 }
 
-#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_unbounded_dispatch() {
     let (tx, rx) = channel::new_unbounded_dispatch();
@@ -43,7 +43,6 @@ fn test_new_unbounded_dispatch() {
     assert_eq!(rx2.recv_items_weak(3), vec![4, 5]);
 }
 
-#[cfg(not(feature = "time-series"))]
 #[test]
 fn test_new_bounded_dispatch() {
     let (tx, rx) = channel::new_bounded_dispatch(4);
@@ -54,4 +53,43 @@ fn test_new_bounded_dispatch() {
     assert_eq!(rx2.recv_items(3), vec![2, 3, 4]);
     assert_eq!(rx.recv_items_weak(3), vec![5]);
     assert_eq!(rx2.recv_items_weak(3), vec![5]);
+}
+
+#[derive(Clone)]
+struct MyTSStruct {
+    time: NaiveDateTime,
+    data: i32,
+}
+
+impl MyTSStruct {
+    pub fn new(time: NaiveDateTime, data: i32) -> Self {
+        Self { time, data }
+    }
+}
+
+impl channel::GetDataTimeExt for MyTSStruct {
+    fn get_data_time(&self) -> NaiveDateTime {
+        self.time.clone()
+    }
+}
+
+#[test]
+fn test_new_time_series_unbounded() {
+    let (tx, rx) = channel::new_time_series_unbounded(NaiveDateTime::now(), 1.0);
+    tx.send_items(vec![
+        MyTSStruct::new(
+            NaiveDateTime::now() - chrono::Duration::milliseconds(10),
+            111,
+        ),
+        MyTSStruct::new(
+            NaiveDateTime::now() + chrono::Duration::milliseconds(10),
+            222,
+        ),
+    ]);
+    assert_eq!(rx.len(), 2);
+    let rx2 = rx.clone();
+    assert_eq!(rx.recv().unwrap().data, 111);
+    assert!(rx2.recv().is_none());
+    sleep(Duration::from_millis(10));
+    assert_eq!(rx2.recv().unwrap().data, 222);
 }
