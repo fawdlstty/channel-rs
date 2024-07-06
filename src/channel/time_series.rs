@@ -68,6 +68,12 @@ impl<T: Clone + Sized + GetDataTimeExt> TSUnboundedBuffer<T> {
         let cur_nanos = (cur_nanos as f64 * self.speed).round() as i64;
         dest_nanos <= cur_nanos
     }
+
+    pub fn part_queue_apply_bound(&mut self, bound: usize) {
+        if self.buf.len() > bound {
+            self.buf = self.buf.split_at(self.buf.len() - bound).1.to_vec();
+        }
+    }
 }
 
 impl<T> TSUnboundedBuffer<T> {
@@ -227,10 +233,18 @@ pub(crate) struct TSBoundedDispatchBuffer<T> {
 impl<T: Clone + Sized + GetDataTimeExt> TSBoundedDispatchBuffer<T> {
     pub fn send(&mut self, data: T) {
         self.pre_buffer.send(data);
+        let bound = self
+            .post_buffer
+            .part_queue_get_residue_count(self.pre_buffer.len());
+        self.pre_buffer.part_queue_apply_bound(bound);
     }
 
     pub fn send_items(&mut self, data: Vec<T>) {
         self.pre_buffer.send_items(data);
+        let bound = self
+            .post_buffer
+            .part_queue_get_residue_count(self.pre_buffer.len());
+        self.pre_buffer.part_queue_apply_bound(bound);
     }
 
     pub fn recv(&mut self, recver_index: usize) -> Option<T> {

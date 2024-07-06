@@ -260,6 +260,28 @@ impl<T: Clone + Sized> BoundedDispatchBuffer<T> {
         self.reset_cache_base();
         ret
     }
+
+    pub fn part_queue_get_residue_count(&mut self, extern_size: usize) -> usize {
+        if extern_size >= self.bounded {
+            self.buf.clear();
+            for (_, val) in self.receiver_poses.iter_mut() {
+                *val = 0;
+            }
+        } else {
+            let self_residue_count = self.bounded - extern_size;
+            if self.buf.len() > self_residue_count {
+                let remove_count = self.buf.len() - self_residue_count;
+                for receiver_pos in self.receiver_poses.values_mut() {
+                    *receiver_pos = match *receiver_pos >= remove_count {
+                        true => *receiver_pos - remove_count,
+                        false => 0,
+                    };
+                }
+                self.buf = self.buf.split_at(remove_count).1.to_vec();
+            }
+        }
+        self.bounded
+    }
 }
 
 impl<T> BoundedDispatchBuffer<T> {
