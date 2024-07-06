@@ -70,3 +70,39 @@ let a = rx2.recv_items(3);      // vec![2, 3, 4]
 let a = rx.recv_items_weak(3);  // vec![5]
 let a = rx2.recv_items_weak(3); // vec![5]
 ```
+
+### time series queue
+
+Features: The effect is almost the same as the above queue, but with the addition of a feature that must be received after the data reaches the time. It can be understood as pushing the frame delay to the screen when playing the video file
+
+```rust
+#[derive(Clone)]
+struct MyTSStruct {
+    time: NaiveDateTime,
+    data: i32,
+}
+
+impl MyTSStruct {
+    pub fn new(time: NaiveDateTime, data: i32) -> Self { Self { time, data } }
+}
+
+impl channel::GetDataTimeExt for MyTSStruct {
+    fn get_data_time(&self) -> NaiveDateTime { self.time.clone() }
+}
+
+// ...
+let (tx, rx) = channel::new_time_series_unbounded(NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series_bounded(10, NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series_bounded_dispatch(10, NaiveDateTime::now(), 1.0);
+tx.send_items(vec![
+    MyTSStruct::new(NaiveDateTime::now() - chrono::Duration::milliseconds(10), 111),
+    MyTSStruct::new(NaiveDateTime::now() + chrono::Duration::milliseconds(10), 222),
+]);
+let a = rx.len(); // 2
+let rx2 = rx.clone();
+let b = rx.recv().unwrap().data; // 111
+let c = rx2.recv().is_none(); // true
+sleep(Duration::from_millis(10));
+let d = rx2.recv().unwrap().data; // 222
+```

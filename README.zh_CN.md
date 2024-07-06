@@ -70,3 +70,39 @@ let a = rx2.recv_items(3);      // vec![2, 3, 4]
 let a = rx.recv_items_weak(3);  // vec![5]
 let a = rx2.recv_items_weak(3); // vec![5]
 ```
+
+### 时序队列
+
+特性：效果几乎等同以上队列，但增加一个特性，必须在数据达到时间后才能被接收。可以理解为在播放视频文件时讲帧延迟推送至屏幕
+
+```rust
+#[derive(Clone)]
+struct MyTSStruct {
+    time: NaiveDateTime,
+    data: i32,
+}
+
+impl MyTSStruct {
+    pub fn new(time: NaiveDateTime, data: i32) -> Self { Self { time, data } }
+}
+
+impl channel::GetDataTimeExt for MyTSStruct {
+    fn get_data_time(&self) -> NaiveDateTime { self.time.clone() }
+}
+
+// ...
+let (tx, rx) = channel::new_time_series_unbounded(NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series_bounded(10, NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series_bounded_dispatch(10, NaiveDateTime::now(), 1.0);
+tx.send_items(vec![
+    MyTSStruct::new(NaiveDateTime::now() - chrono::Duration::milliseconds(10), 111),
+    MyTSStruct::new(NaiveDateTime::now() + chrono::Duration::milliseconds(10), 222),
+]);
+let a = rx.len(); // 2
+let rx2 = rx.clone();
+let b = rx.recv().unwrap().data; // 111
+let c = rx2.recv().is_none(); // true
+sleep(Duration::from_millis(10));
+let d = rx2.recv().unwrap().data; // 222
+```

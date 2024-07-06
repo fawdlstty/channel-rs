@@ -24,9 +24,32 @@ pub fn new_bounded_dispatch<T: Clone + Send>(bounded: usize) -> (Sender<T>, Rece
     Channel::new(Some(bounded), true)
 }
 
-pub fn new_time_series_unbounded<T: Clone + Send>(
+pub fn new_time_series_unbounded<T: Clone + Send + GetDataTimeExt>(
     start_data_time: NaiveDateTime,
     speed: f64,
 ) -> (TSSender<T>, TSReceiver<T>) {
     TSChannel::new(None, false, start_data_time, speed)
+}
+
+pub fn new_time_series_bounded<T: Clone + Send + GetDataTimeExt>(
+    bounded: usize,
+    start_data_time: NaiveDateTime,
+    speed: f64,
+) -> (TSSender<T>, TSReceiver<T>) {
+    TSChannel::new(Some(bounded), false, start_data_time, speed)
+}
+
+pub fn new_time_series_unbounded_dispatch<T: Clone + Send + GetDataTimeExt>(
+    start_data_time: NaiveDateTime,
+    speed: f64,
+) -> (TSSender<T>, TSReceiver<T>) {
+    TSChannel::new(None, true, start_data_time, speed)
+}
+
+pub fn new_time_series_bounded_dispatch<T: Clone + Send + GetDataTimeExt>(
+    bounded: usize,
+    start_data_time: NaiveDateTime,
+    speed: f64,
+) -> (TSSender<T>, TSReceiver<T>) {
+    TSChannel::new(Some(bounded), true, start_data_time, speed)
 }
