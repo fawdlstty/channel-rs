@@ -509,6 +509,17 @@ impl<T> Receiver<T> {
         let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
         buf.len(self.index) == 0
     }
+
+    pub fn weak(&self) -> WeakReceiver<T> {
+        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
+        unsafe { &(*chan) }
+            .receiver_count
+            .fetch_add(1, Ordering::SeqCst);
+        _ = unsafe { &(*chan) }
+            .max_receiver_index
+            .fetch_add(1, Ordering::SeqCst);
+        WeakReceiver { chan: self.chan }
+    }
 }
 
 impl<T> Clone for Receiver<T> {
@@ -534,6 +545,38 @@ impl<T> Drop for Receiver<T> {
         let chan = unsafe { self.chan.as_mut() };
         let mut buf = chan.buf.lock().unwrap();
         buf.drop_receiver(self.index);
+        let count = chan.receiver_count.fetch_sub(1, Ordering::SeqCst);
+        if count == 1 && chan.sender_count.load(Ordering::SeqCst) == 0 {
+            unsafe { ptr::drop_in_place(self.chan.as_ptr()) };
+        }
+    }
+}
+
+pub struct WeakReceiver<T> {
+    chan: NonNull<Channel<T>>,
+}
+
+impl<T> WeakReceiver<T> {
+    pub fn lock(&self) -> Receiver<T> {
+        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
+        unsafe { &(*chan) }
+            .receiver_count
+            .fetch_add(1, Ordering::SeqCst);
+        let index = unsafe { &(*chan) }
+            .max_receiver_index
+            .fetch_add(1, Ordering::SeqCst);
+        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        buf.new_receiver(index);
+        Receiver {
+            chan: self.chan,
+            index,
+        }
+    }
+}
+
+impl<T> Drop for WeakReceiver<T> {
+    fn drop(&mut self) {
+        let chan = unsafe { self.chan.as_mut() };
         let count = chan.receiver_count.fetch_sub(1, Ordering::SeqCst);
         if count == 1 && chan.sender_count.load(Ordering::SeqCst) == 0 {
             unsafe { ptr::drop_in_place(self.chan.as_ptr()) };
