@@ -106,3 +106,19 @@ let c = rx2.recv().is_none(); // true
 sleep(Duration::from_millis(10));
 let d = rx2.recv().unwrap().data; // 222
 ```
+
+### 弱接收者
+
+特性：当你希望持有一个接收者，但暂时不接收数据时，可通过弱接收者获取接收者引用
+
+```rust
+let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
+let wrx = rx.weak();
+tx.send_items(vec![
+    MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),
+    MyTSStruct::new(NaiveDateTime::now() + Duration::milliseconds(10), 222),
+]);
+let a = rx.recv().unwrap().data; // 111
+let tx2 = wrx.lock();
+let b = tx2.len(); // 1
+```

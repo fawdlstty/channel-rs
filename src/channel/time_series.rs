@@ -33,10 +33,8 @@ impl<T: Clone + Sized + GetDataTimeExt> TSUnboundedBuffer<T> {
     }
 
     pub fn recv(&mut self) -> Option<T> {
-        if !self.buf.is_empty() {
-            if self.is_valid(0) {
-                return Some(self.buf.remove(0));
-            }
+        if self.is_valid(0) {
+            return Some(self.buf.remove(0));
         }
         None
     }
@@ -50,7 +48,7 @@ impl<T: Clone + Sized + GetDataTimeExt> TSUnboundedBuffer<T> {
             return vec![];
         };
         while read_count > 0 {
-            if self.is_valid(read_count) {
+            if self.is_valid(read_count - 1) {
                 break;
             }
             read_count -= 1;
@@ -59,6 +57,9 @@ impl<T: Clone + Sized + GetDataTimeExt> TSUnboundedBuffer<T> {
     }
 
     fn is_valid(&self, index: usize) -> bool {
+        if self.buf.len() <= index {
+            return false;
+        }
         let dest_nanos = (self.buf[index].get_data_time() - self.start_data_time)
             .num_nanoseconds()
             .unwrap_or(0);

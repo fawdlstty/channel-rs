@@ -106,3 +106,19 @@ let c = rx2.recv().is_none(); // true
 sleep(Duration::from_millis(10));
 let d = rx2.recv().unwrap().data; // 222
 ```
+
+### weak receiver
+
+Feature: When you want to hold a receiver, but do not receive data for the time being, you can get the receiver reference through the weak receiver
+
+```rust
+let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
+let wrx = rx.weak();
+tx.send_items(vec![
+    MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),
+    MyTSStruct::new(NaiveDateTime::now() + Duration::milliseconds(10), 222),
+]);
+let a = rx.recv().unwrap().data; // 111
+let tx2 = wrx.lock();
+let b = tx2.len(); // 1
+```
