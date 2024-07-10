@@ -1,5 +1,8 @@
 # channel-rs
 
+![version](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffawdlstty%2Fchannel-rs%2Fmain%2FCargo.toml&query=package.version&label=version)
+![status](https://img.shields.io/github/actions/workflow/status/fawdlstty/channel-rs/rust.yml)
+
 [English](README.md) | 简体中文
 
 Rust 高级队列库
