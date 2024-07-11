@@ -3,9 +3,9 @@ pub mod channel;
 pub mod test;
 pub mod utils;
 
-pub use channel::time_series::{GetDataTimeExt, TSReceiver, TSSender};
+pub use channel::time_series::{GetDataTimeExt, TSReceiver, TSSender, TSWeakReceiver};
 use channel::{time_series::TSChannel, Channel};
-pub use channel::{Receiver, Sender};
+pub use channel::{Receiver, Sender, WeakReceiver};
 use chrono::NaiveDateTime;
 
 pub fn new_unbounded<T: Clone + Send>() -> (Sender<T>, Receiver<T>) {
