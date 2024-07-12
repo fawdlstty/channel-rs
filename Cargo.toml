@@ -1,6 +1,6 @@
 [package]
 name = "channel"
-version = "0.1.7"
+version = "0.1.6"
 edition = "2021"
 rust-version = "1.77"
 license = "MIT"
@@ -15,3 +15,4 @@ chrono = "0.4.26"
 
 [features]
 default = []
+#metrics = [] #[cfg(feature = "metrics")]

@@ -5,6 +5,8 @@ use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use crate::utils::vec_utils::VecExt;
+
 #[derive(Debug)]
 pub(crate) struct UnboundedBuffer<T> {
     buf: Vec<T>,
@@ -35,6 +37,10 @@ impl<T: Clone + Sized> UnboundedBuffer<T> {
             return vec![];
         };
         self.buf.drain(0..read_count).collect()
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        self.buf.query_items(start, end)
     }
 }
 
@@ -85,6 +91,10 @@ impl<T: Clone + Sized> BoundedBuffer<T> {
             return vec![];
         };
         self.buf.drain(0..read_count).collect()
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        self.buf.query_items(start, end)
     }
 }
 
@@ -152,6 +162,10 @@ impl<T: Clone + Sized> UnboundedDispatchBuffer<T> {
         }
         self.reset_cache_base();
         ret
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        self.buf.query_items(start, end)
     }
 }
 
@@ -282,6 +296,10 @@ impl<T: Clone + Sized> BoundedDispatchBuffer<T> {
         }
         self.bounded
     }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        self.buf.query_items(start, end)
+    }
 }
 
 impl<T> BoundedDispatchBuffer<T> {
@@ -370,6 +388,15 @@ impl<T: Clone + Sized> AnyBuffer<T> {
             AnyBuffer::BoundedDispatchBuffer(buf) => {
                 buf.recv_count(recver_index, recv_count, force_count)
             }
+        }
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        match self {
+            AnyBuffer::UnboundedBuffer(buf) => buf.query_items(start, end),
+            AnyBuffer::BoundedBuffer(buf) => buf.query_items(start, end),
+            AnyBuffer::UnboundedDispatchBuffer(buf) => buf.query_items(start, end),
+            AnyBuffer::BoundedDispatchBuffer(buf) => buf.query_items(start, end),
         }
     }
 }
@@ -510,7 +537,7 @@ impl<T> Receiver<T> {
         buf.len(self.index) == 0
     }
 
-    pub fn weak(&self) -> WeakReceiver<T> {
+    pub fn get_observer(&self) -> Observer<T> {
         let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
         unsafe { &(*chan) }
             .receiver_count
@@ -518,7 +545,7 @@ impl<T> Receiver<T> {
         _ = unsafe { &(*chan) }
             .max_receiver_index
             .fetch_add(1, Ordering::SeqCst);
-        WeakReceiver { chan: self.chan }
+        Observer { chan: self.chan }
     }
 }
 
@@ -552,12 +579,29 @@ impl<T> Drop for Receiver<T> {
     }
 }
 
-pub struct WeakReceiver<T> {
+pub struct Observer<T> {
     chan: NonNull<Channel<T>>,
 }
 
-impl<T> WeakReceiver<T> {
-    pub fn lock(&self) -> Receiver<T> {
+impl<T: Clone + Sized> Observer<T> {
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.query_items(start, end)
+    }
+}
+
+impl<T> Observer<T> {
+    pub fn len(&self) -> usize {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.len(usize::MAX)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.len(usize::MAX) == 0
+    }
+
+    pub fn get_receiver(&self) -> Receiver<T> {
         let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
         unsafe { &(*chan) }
             .receiver_count
@@ -574,7 +618,7 @@ impl<T> WeakReceiver<T> {
     }
 }
 
-impl<T> Drop for WeakReceiver<T> {
+impl<T> Drop for Observer<T> {
     fn drop(&mut self) {
         let chan = unsafe { self.chan.as_mut() };
         let count = chan.receiver_count.fetch_sub(1, Ordering::SeqCst);

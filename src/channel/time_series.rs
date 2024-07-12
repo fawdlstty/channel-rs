@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use crate::utils::time_util::NaiveDateTimeExt;
+use crate::utils::{time_util::NaiveDateTimeExt, vec_utils::VecExt};
 use chrono::NaiveDateTime;
 
 use super::{BoundedDispatchBuffer, UnboundedDispatchBuffer};
@@ -74,6 +74,10 @@ impl<T: Clone + Sized + GetDataTimeExt> TSUnboundedBuffer<T> {
         if self.buf.len() > bound {
             self.buf = self.buf.split_at(self.buf.len() - bound).1.to_vec();
         }
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        self.buf.query_items(start, end)
     }
 }
 
@@ -152,6 +156,10 @@ impl<T: Clone + Sized + GetDataTimeExt> TSBoundedBuffer<T> {
         let cur_nanos = (cur_nanos as f64 * self.speed).round() as i64;
         dest_nanos <= cur_nanos
     }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        self.buf.query_items(start, end)
+    }
 }
 
 impl<T> TSBoundedBuffer<T> {
@@ -201,6 +209,35 @@ impl<T: Clone + Sized + GetDataTimeExt> TSUnboundedDispatchBuffer<T> {
         self.post_buffer.send_items(tmp_data);
         self.post_buffer
             .recv_count(recver_index, recv_count, force_count)
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        let mut start = start;
+        let mut end = end.unwrap_or(self.len(usize::MAX));
+        let mut post_len = self.post_buffer.len(usize::MAX);
+        let mut items = vec![];
+        {
+            let post_skip = post_len.min(start);
+            if post_skip > 0 {
+                start -= post_skip;
+                end -= post_skip;
+                post_len -= post_skip;
+            }
+        }
+        if post_len > 0 {
+            assert!(start == 0);
+            let post_take = post_len.min(end);
+            items.extend(self.post_buffer.query_items(0, Some(post_take)));
+            end -= post_take;
+            if end == 0 {
+                return items;
+            }
+        }
+        end = end.min(self.pre_buffer.len());
+        if end > start {
+            items.extend(self.pre_buffer.query_items(start, Some(end)));
+        }
+        items
     }
 }
 
@@ -264,6 +301,35 @@ impl<T: Clone + Sized + GetDataTimeExt> TSBoundedDispatchBuffer<T> {
         self.post_buffer.send_items(tmp_data);
         self.post_buffer
             .recv_count(recver_index, recv_count, force_count)
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        let mut start = start;
+        let mut end = end.unwrap_or(self.len(usize::MAX));
+        let mut post_len = self.post_buffer.len(usize::MAX);
+        let mut items = vec![];
+        {
+            let post_skip = post_len.min(start);
+            if post_skip > 0 {
+                start -= post_skip;
+                end -= post_skip;
+                post_len -= post_skip;
+            }
+        }
+        if post_len > 0 {
+            assert!(start == 0);
+            let post_take = post_len.min(end);
+            items.extend(self.post_buffer.query_items(0, Some(post_take)));
+            end -= post_take;
+            if end == 0 {
+                return items;
+            }
+        }
+        end = end.min(self.pre_buffer.len());
+        if end > start {
+            items.extend(self.pre_buffer.query_items(start, Some(end)));
+        }
+        items
     }
 }
 
@@ -339,6 +405,15 @@ impl<T: Clone + Sized + GetDataTimeExt> TSAnyBuffer<T> {
             TSAnyBuffer::BoundedDispatchBuffer(buf) => {
                 buf.recv_count(recver_index, recv_count, force_count)
             }
+        }
+    }
+
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        match self {
+            TSAnyBuffer::UnboundedBuffer(buf) => buf.query_items(start, end),
+            TSAnyBuffer::BoundedBuffer(buf) => buf.query_items(start, end),
+            TSAnyBuffer::UnboundedDispatchBuffer(buf) => buf.query_items(start, end),
+            TSAnyBuffer::BoundedDispatchBuffer(buf) => buf.query_items(start, end),
         }
     }
 }
@@ -502,7 +577,7 @@ impl<T> TSReceiver<T> {
         buf.len(self.index) == 0
     }
 
-    pub fn weak(&self) -> TSWeakReceiver<T> {
+    pub fn get_observer(&self) -> TSObserver<T> {
         let chan: *mut TSChannel<T> = unsafe { std::mem::transmute(self.chan) };
         unsafe { &(*chan) }
             .receiver_count
@@ -510,7 +585,7 @@ impl<T> TSReceiver<T> {
         _ = unsafe { &(*chan) }
             .max_receiver_index
             .fetch_add(1, Ordering::SeqCst);
-        TSWeakReceiver { chan: self.chan }
+        TSObserver { chan: self.chan }
     }
 }
 
@@ -544,12 +619,29 @@ impl<T> Drop for TSReceiver<T> {
     }
 }
 
-pub struct TSWeakReceiver<T> {
+pub struct TSObserver<T> {
     chan: NonNull<TSChannel<T>>,
 }
 
-impl<T> TSWeakReceiver<T> {
-    pub fn lock(&self) -> TSReceiver<T> {
+impl<T: Clone + Sized + GetDataTimeExt> TSObserver<T> {
+    pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.query_items(start, end)
+    }
+}
+
+impl<T> TSObserver<T> {
+    pub fn len(&self) -> usize {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.len(usize::MAX)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
+        buf.len(usize::MAX) == 0
+    }
+
+    pub fn get_receiver(&self) -> TSReceiver<T> {
         let chan: *mut TSChannel<T> = unsafe { std::mem::transmute(self.chan) };
         unsafe { &(*chan) }
             .receiver_count
@@ -566,7 +658,7 @@ impl<T> TSWeakReceiver<T> {
     }
 }
 
-impl<T> Drop for TSWeakReceiver<T> {
+impl<T> Drop for TSObserver<T> {
     fn drop(&mut self) {
         let chan = unsafe { self.chan.as_mut() };
         let count = chan.receiver_count.fetch_sub(1, Ordering::SeqCst);

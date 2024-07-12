@@ -97,24 +97,24 @@ fn test_new_time_series_unbounded() {
 #[test]
 fn test_new_unbounded_weak() {
     let (tx, rx) = channel::new_unbounded_dispatch();
-    let wrx = rx.weak();
+    let ox = rx.get_observer();
     tx.send_items(vec![1, 2, 3, 4]);
     tx.send(5);
     assert_eq!(rx.recv_items(3), vec![1, 2, 3]);
     assert_eq!(rx.recv_items_weak(3), vec![4, 5]);
-    let tx2 = wrx.lock();
+    let tx2 = ox.get_receiver();
     assert_eq!(tx2.len(), 0);
 }
 
 #[test]
 fn test_new_time_series_unbounded_weak() {
     let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
-    let wrx = rx.weak();
+    let ox = rx.get_observer();
     tx.send_items(vec![
         MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),
         MyTSStruct::new(NaiveDateTime::now() + Duration::milliseconds(10), 222),
     ]);
     assert_eq!(rx.recv().unwrap().data, 111);
-    let tx2 = wrx.lock();
+    let tx2 = ox.get_receiver();
     assert_eq!(tx2.len(), 1);
 }
