@@ -40,21 +40,24 @@ impl MetricsManager {
         *self.index_metrics.entry(index).or_insert(0) += count;
     }
 
-    pub fn get_sum(&self) -> (usize, usize) {
-        let mut sender_count = 0;
-        let mut receiver_count = 0;
+    pub fn get_result(&self) -> MetricsResult {
+        let mut sender_counts = HashMap::new();
+        let mut receiver_counts = HashMap::new();
         for (index, value) in self.index_metrics.iter() {
+            let caller_str = self.caller_locs[*index].clone();
             match self.caller_holder_types[*index] {
-                HolderType::Sender => sender_count += value,
-                HolderType::Receiver => receiver_count += value,
-            }
+                HolderType::Sender => sender_counts.insert(caller_str, *value),
+                HolderType::Receiver => receiver_counts.insert(caller_str, *value),
+            };
         }
-        (sender_count, receiver_count)
+        MetricsResult {
+            sender_counts,
+            receiver_counts,
+        }
     }
+}
 
-    pub fn clear(&mut self) {
-        for (_, value) in self.index_metrics.iter_mut() {
-            *value = 0;
-        }
-    }
+pub struct MetricsResult {
+    pub sender_counts: HashMap<String, usize>,
+    pub receiver_counts: HashMap<String, usize>,
 }

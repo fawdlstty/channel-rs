@@ -3,7 +3,6 @@ pub mod time_series;
 use crate::utils::vec_utils::VecExt;
 use std::collections::HashMap;
 use std::ptr::{self, NonNull};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 #[cfg(feature = "metrics")]
@@ -448,10 +447,10 @@ impl<T> AnyBuffer<T> {
 
 #[derive(Debug)]
 pub(crate) struct Channel<T> {
-    sender_count: AtomicUsize,
-    receiver_count: AtomicUsize,
-    max_receiver_index: AtomicUsize,
-    buf: Mutex<AnyBuffer<T>>,
+    sender_count: usize,
+    receiver_count: usize,
+    max_receiver_index: usize,
+    buf: AnyBuffer<T>,
     #[cfg(feature = "metrics")]
     metrics_mgr: MetricsManager,
 }
@@ -469,14 +468,14 @@ impl<T> Channel<T> {
             let receiver_idx = metrics_mgr.new_metrics_index(caller, HolderType::Receiver);
             (metrics_mgr, sender_idx, receiver_idx)
         };
-        let chan = NonNull::from(Box::leak(Box::new(Channel {
-            sender_count: AtomicUsize::new(1),
-            receiver_count: AtomicUsize::new(1),
-            max_receiver_index: AtomicUsize::new(1),
-            buf: Mutex::new(AnyBuffer::new(bounded, dispatch)),
+        let chan = NonNull::from(Box::leak(Box::new(Mutex::new(Channel {
+            sender_count: 1,
+            receiver_count: 1,
+            max_receiver_index: 1,
+            buf: AnyBuffer::new(bounded, dispatch),
             #[cfg(feature = "metrics")]
             metrics_mgr,
-        })));
+        }))));
         (
             Sender {
                 chan,
@@ -503,22 +502,20 @@ impl<T> Channel<T> {
 }
 
 pub struct Sender<T> {
-    chan: NonNull<Channel<T>>,
+    chan: NonNull<Mutex<Channel<T>>>,
     #[cfg(feature = "metrics")]
     metrics_idx: usize,
 }
 
 impl<T: Clone + Sized> Sender<T> {
     pub fn send(&self, data: T) {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        let mut buf = chan.buf.lock().unwrap();
-        buf.send(data);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.send(data);
     }
 
     pub fn send_items(&self, data: Vec<T>) {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        let mut buf = chan.buf.lock().unwrap();
-        buf.send_items(data);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.send_items(data);
     }
 }
 
@@ -526,8 +523,8 @@ impl<T> Clone for Sender<T> {
     #[cfg(feature = "metrics")]
     #[track_caller]
     fn clone(&self) -> Self {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.sender_count.fetch_add(1, Ordering::SeqCst);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.sender_count += 1;
         Self {
             chan: self.chan,
             metrics_idx: chan.new_metrics_index(Location::caller(), HolderType::Sender),
@@ -536,24 +533,24 @@ impl<T> Clone for Sender<T> {
 
     #[cfg(not(feature = "metrics"))]
     fn clone(&self) -> Self {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.sender_count.fetch_add(1, Ordering::SeqCst);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.sender_count += 1;
         Self { chan: self.chan }
     }
 }
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        let chan = unsafe { self.chan.as_mut() };
-        let count = chan.sender_count.fetch_sub(1, Ordering::SeqCst);
-        if count == 1 && chan.receiver_count.load(Ordering::SeqCst) == 0 {
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.sender_count -= 1;
+        if chan.sender_count == 0 && chan.receiver_count == 0 {
             unsafe { ptr::drop_in_place(self.chan.as_ptr()) };
         }
     }
 }
 
 pub struct Receiver<T> {
-    chan: NonNull<Channel<T>>,
+    chan: NonNull<Mutex<Channel<T>>>,
     index: usize,
     #[cfg(feature = "metrics")]
     metrics_idx: usize,
@@ -561,37 +558,36 @@ pub struct Receiver<T> {
 
 impl<T: Clone + Sized> Receiver<T> {
     pub fn recv(&self) -> Option<T> {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.buf.lock().unwrap().recv(self.index)
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.recv(self.index)
     }
 
     pub fn recv_items(&self, count: usize) -> Vec<T> {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.buf.lock().unwrap().recv_count(self.index, count, true)
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.recv_count(self.index, count, true)
     }
 
     pub fn recv_items_weak(&self, max_count: usize) -> Vec<T> {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        let mut buf = chan.buf.lock().unwrap();
-        buf.recv_count(self.index, max_count, false)
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.recv_count(self.index, max_count, false)
     }
 }
 
 impl<T> Receiver<T> {
     pub fn len(&self) -> usize {
-        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
-        buf.len(self.index)
+        let chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.len(self.index)
     }
 
     pub fn is_empty(&self) -> bool {
-        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
-        buf.len(self.index) == 0
+        let chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.len(self.index) == 0
     }
 
     pub fn get_observer(&self) -> Observer<T> {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
-        _ = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.receiver_count += 1;
+        _ = chan.max_receiver_index += 1;
         Observer { chan: self.chan }
     }
 }
@@ -600,10 +596,11 @@ impl<T> Clone for Receiver<T> {
     #[cfg(feature = "metrics")]
     #[track_caller]
     fn clone(&self) -> Self {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
-        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
-        chan.buf.lock().unwrap().new_receiver(index);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.receiver_count += 1;
+        let index = chan.max_receiver_index;
+        chan.max_receiver_index += 1;
+        chan.buf.new_receiver(index);
         Self {
             chan: self.chan,
             index,
@@ -613,10 +610,11 @@ impl<T> Clone for Receiver<T> {
 
     #[cfg(not(feature = "metrics"))]
     fn clone(&self) -> Self {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
-        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
-        chan.buf.lock().unwrap().new_receiver(index);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.receiver_count += 1;
+        let index = chan.max_receiver_index;
+        chan.max_receiver_index += 1;
+        chan.buf.new_receiver(index);
         Self {
             chan: self.chan,
             index,
@@ -626,45 +624,45 @@ impl<T> Clone for Receiver<T> {
 
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
-        let chan = unsafe { self.chan.as_mut() };
-        let mut buf = chan.buf.lock().unwrap();
-        buf.drop_receiver(self.index);
-        let count = chan.receiver_count.fetch_sub(1, Ordering::SeqCst);
-        if count == 1 && chan.sender_count.load(Ordering::SeqCst) == 0 {
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.drop_receiver(self.index);
+        chan.receiver_count -= 1;
+        if chan.receiver_count == 0 && chan.sender_count == 0 {
             unsafe { ptr::drop_in_place(self.chan.as_ptr()) };
         }
     }
 }
 
 pub struct Observer<T> {
-    chan: NonNull<Channel<T>>,
+    chan: NonNull<Mutex<Channel<T>>>,
 }
 
 impl<T: Clone + Sized> Observer<T> {
     pub fn query_items(&self, start: usize, end: Option<usize>) -> Vec<T> {
-        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
-        buf.query_items(start, end)
+        let chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.query_items(start, end)
     }
 }
 
 impl<T> Observer<T> {
     pub fn len(&self) -> usize {
-        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
-        buf.len(usize::MAX)
+        let chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.len(usize::MAX)
     }
 
     pub fn is_empty(&self) -> bool {
-        let buf = unsafe { self.chan.as_ref() }.buf.lock().unwrap();
-        buf.len(usize::MAX) == 0
+        let chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.buf.len(usize::MAX) == 0
     }
 
     #[cfg(feature = "metrics")]
     #[track_caller]
     pub fn get_receiver(&self) -> Receiver<T> {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
-        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
-        chan.buf.lock().unwrap().new_receiver(index);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.receiver_count += 1;
+        let index = chan.max_receiver_index;
+        chan.max_receiver_index += 1;
+        chan.buf.new_receiver(index);
         Receiver {
             chan: self.chan,
             index,
@@ -674,10 +672,11 @@ impl<T> Observer<T> {
 
     #[cfg(not(feature = "metrics"))]
     pub fn get_receiver(&self) -> Receiver<T> {
-        let chan = unsafe { self.chan.clone().as_mut() };
-        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
-        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
-        chan.buf.lock().unwrap().new_receiver(index);
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.receiver_count += 1;
+        let index = chan.max_receiver_index;
+        chan.max_receiver_index += 1;
+        chan.buf.new_receiver(index);
         Receiver {
             chan: self.chan,
             index,
@@ -687,9 +686,9 @@ impl<T> Observer<T> {
 
 impl<T> Drop for Observer<T> {
     fn drop(&mut self) {
-        let chan = unsafe { self.chan.as_mut() };
-        let count = chan.receiver_count.fetch_sub(1, Ordering::SeqCst);
-        if count == 1 && chan.sender_count.load(Ordering::SeqCst) == 0 {
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.receiver_count -= 1;
+        if chan.receiver_count == 0 && chan.sender_count == 0 {
             unsafe { ptr::drop_in_place(self.chan.as_ptr()) };
         }
     }
