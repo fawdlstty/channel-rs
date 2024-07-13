@@ -116,7 +116,7 @@ let d = rx2.recv().unwrap().data; // 222
 
 ```rust
 let (tx, rx) = channel::new_time_series(None, true, NaiveDateTime::now(), 1.0);
-let ox = rx.get_observer();
+let mut ox = rx.get_observer();
 tx.send_items(vec![
     MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),
     MyTSStruct::new(NaiveDateTime::now() + Duration::milliseconds(10), 222),
@@ -124,4 +124,10 @@ tx.send_items(vec![
 let a = rx.recv().unwrap().data; // 111
 let tx2 = ox.get_receiver();
 let b = tx2.len(); // 1
+
+// 以下代码在启用 `metrics` 特性后可用
+let result = ox.get_metrics_result(true);
+println!("{:?}", result);
+let send_count: usize = result.sender_counts.iter().map(|(_, v)| *v).sum(); // 2
+let recv_count: usize = result.receiver_counts.iter().map(|(_, v)| *v).sum(); // 1
 ```

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 #[cfg(feature = "metrics")]
 use {
-    crate::utils::metrics_utils::{HolderType, MetricsManager},
+    crate::utils::metrics_utils::{HolderType, MetricsManager, MetricsResult},
     std::panic::Location,
 };
 
@@ -499,6 +499,11 @@ impl<T> Channel<T> {
     ) -> usize {
         self.metrics_mgr.new_metrics_index(caller, holder_type)
     }
+
+    #[cfg(feature = "metrics")]
+    pub fn get_metrics_result(&mut self, clear: bool) -> MetricsResult {
+        self.metrics_mgr.get_result(clear)
+    }
 }
 
 pub struct Sender<T> {
@@ -510,11 +515,15 @@ pub struct Sender<T> {
 impl<T: Clone + Sized> Sender<T> {
     pub fn send(&self, data: T) {
         let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        #[cfg(feature = "metrics")]
+        chan.metrics_mgr.record(self.metrics_idx, 1);
         chan.buf.send(data);
     }
 
     pub fn send_items(&self, data: Vec<T>) {
         let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        #[cfg(feature = "metrics")]
+        chan.metrics_mgr.record(self.metrics_idx, data.len());
         chan.buf.send_items(data);
     }
 }
@@ -559,17 +568,32 @@ pub struct Receiver<T> {
 impl<T: Clone + Sized> Receiver<T> {
     pub fn recv(&self) -> Option<T> {
         let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
-        chan.buf.recv(self.index)
+        let ret = chan.buf.recv(self.index);
+        #[cfg(feature = "metrics")]
+        if ret.is_some() {
+            chan.metrics_mgr.record(self.metrics_idx, 1);
+        }
+        ret
     }
 
     pub fn recv_items(&self, count: usize) -> Vec<T> {
         let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
-        chan.buf.recv_count(self.index, count, true)
+        let ret = chan.buf.recv_count(self.index, count, true);
+        #[cfg(feature = "metrics")]
+        if ret.len() > 0 {
+            chan.metrics_mgr.record(self.metrics_idx, ret.len());
+        }
+        ret
     }
 
     pub fn recv_items_weak(&self, max_count: usize) -> Vec<T> {
         let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
-        chan.buf.recv_count(self.index, max_count, false)
+        let ret = chan.buf.recv_count(self.index, max_count, false);
+        #[cfg(feature = "metrics")]
+        if ret.len() > 0 {
+            chan.metrics_mgr.record(self.metrics_idx, ret.len());
+        }
+        ret
     }
 }
 
@@ -604,7 +628,7 @@ impl<T> Clone for Receiver<T> {
         Self {
             chan: self.chan,
             index,
-            metrics_idx: chan.new_metrics_index(Location::caller(), HolderType::Sender),
+            metrics_idx: chan.new_metrics_index(Location::caller(), HolderType::Receiver),
         }
     }
 
@@ -681,6 +705,12 @@ impl<T> Observer<T> {
             chan: self.chan,
             index,
         }
+    }
+
+    #[cfg(feature = "metrics")]
+    pub fn get_metrics_result(&mut self, clear: bool) -> MetricsResult {
+        let mut chan = unsafe { self.chan.clone().as_mut().lock().unwrap() };
+        chan.get_metrics_result(clear)
     }
 }
 

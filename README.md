@@ -124,4 +124,10 @@ tx.send_items(vec![
 let a = rx.recv().unwrap().data; // 111
 let tx2 = ox.get_receiver();
 let b = tx2.len(); // 1
+
+// The following code is available when the `metrics` feature is enabled
+let result = ox.get_metrics_result(true);
+println!("{:?}", result);
+let send_count: usize = result.sender_counts.iter().map(|(_, v)| *v).sum(); // 2
+let recv_count: usize = result.receiver_counts.iter().map(|(_, v)| *v).sum(); // 1
 ```
