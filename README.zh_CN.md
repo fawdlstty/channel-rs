@@ -20,7 +20,7 @@ Rust 高级队列库
 特性：无限缓存容量，生产者和消费者可以有多个，一条消息只能被消费一次
 
 ```rust
-let (tx, rx) = channel::new_unbounded();
+let (tx, rx) = channel::new(None, false);
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let a = rx.len();           // 5
@@ -35,7 +35,7 @@ let d = rx.recv().unwrap(); // 5
 特性：只缓存指定的数量，超过则覆盖最早的数据，生产者和消费者可以有多个，一条消息只能被消费一次
 
 ```rust
-let (tx, rx) = channel::new_bounded(4);
+let (tx, rx) = channel::new(Some(4), false);
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
@@ -49,7 +49,7 @@ let c = rx.is_empty();     // true
 特性：无限缓存容量，生产者和消费者可以有多个，任一条消息将被所有消费者所消费
 
 ```rust
-let (tx, rx) = channel::new_unbounded_dispatch();
+let (tx, rx) = channel::new(None, true);
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
@@ -64,7 +64,7 @@ let d = rx2.recv_items_weak(3); // vec![4, 5]
 特性：只缓存指定的数量，超过则覆盖最早的数据，生产者和消费者可以有多个，任一条消息只要没被覆盖则将被所有消费者所消费
 
 ```rust
-let (tx, rx) = channel::new_bounded_dispatch(4);
+let (tx, rx) = channel::new(Some(4), true);
 tx.send_items(vec![1, 2, 3, 4]);
 tx.send(5);
 let rx2 = rx.clone();
@@ -94,10 +94,10 @@ impl channel::GetDataTimeExt for MyTSStruct {
 }
 
 // ...
-let (tx, rx) = channel::new_time_series_unbounded(NaiveDateTime::now(), 1.0);
-// let (tx, rx) = channel::new_time_series_bounded(10, NaiveDateTime::now(), 1.0);
-// let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
-// let (tx, rx) = channel::new_time_series_bounded_dispatch(10, NaiveDateTime::now(), 1.0);
+let (tx, rx) = channel::new_time_series(None, false, NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series(Some(10), false, NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series(None, true, NaiveDateTime::now(), 1.0);
+// let (tx, rx) = channel::new_time_series(Some(10), true, NaiveDateTime::now(), 1.0);
 tx.send_items(vec![
     MyTSStruct::new(NaiveDateTime::now() - chrono::Duration::milliseconds(10), 111),
     MyTSStruct::new(NaiveDateTime::now() + chrono::Duration::milliseconds(10), 222),
@@ -115,7 +115,7 @@ let d = rx2.recv().unwrap().data; // 222
 特性：观测者不直接接收管道数据，但可以检测当前缓存使用量以及直接从缓存里提取数据。观测者可以和接收者互相转换
 
 ```rust
-let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
+let (tx, rx) = channel::new_time_series(None, true, NaiveDateTime::now(), 1.0);
 let ox = rx.get_observer();
 tx.send_items(vec![
     MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),

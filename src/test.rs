@@ -10,7 +10,7 @@ fn test_it_works() {
 
 #[test]
 fn test_new_unbounded() {
-    let (tx, rx) = channel::new_unbounded();
+    let (tx, rx) = channel::new(None, false);
     tx.send_items(vec![1, 2, 3, 4]);
     tx.send(5);
     assert_eq!(rx.len(), 5);
@@ -22,7 +22,7 @@ fn test_new_unbounded() {
 
 #[test]
 fn test_new_bounded() {
-    let (tx, rx) = channel::new_bounded(4);
+    let (tx, rx) = channel::new(Some(4), false);
     tx.send_items(vec![1, 2, 3, 4]);
     tx.send(5);
     let rx2 = rx.clone();
@@ -33,7 +33,7 @@ fn test_new_bounded() {
 
 #[test]
 fn test_new_unbounded_dispatch() {
-    let (tx, rx) = channel::new_unbounded_dispatch();
+    let (tx, rx) = channel::new(None, true);
     tx.send_items(vec![1, 2, 3, 4]);
     tx.send(5);
     let rx2 = rx.clone();
@@ -45,7 +45,7 @@ fn test_new_unbounded_dispatch() {
 
 #[test]
 fn test_new_bounded_dispatch() {
-    let (tx, rx) = channel::new_bounded_dispatch(4);
+    let (tx, rx) = channel::new(Some(4), true);
     tx.send_items(vec![1, 2, 3, 4]);
     tx.send(5);
     let rx2 = rx.clone();
@@ -75,7 +75,7 @@ impl channel::GetDataTimeExt for MyTSStruct {
 
 #[test]
 fn test_new_time_series_unbounded() {
-    let (tx, rx) = channel::new_time_series_unbounded(NaiveDateTime::now(), 1.0);
+    let (tx, rx) = channel::new_time_series(None, false, NaiveDateTime::now(), 1.0);
     tx.send_items(vec![
         MyTSStruct::new(
             NaiveDateTime::now() - chrono::Duration::milliseconds(10),
@@ -90,13 +90,13 @@ fn test_new_time_series_unbounded() {
     let rx2 = rx.clone();
     assert_eq!(rx.recv().unwrap().data, 111);
     assert!(rx2.recv().is_none());
-    sleep(std::time::Duration::from_millis(10));
+    sleep(std::time::Duration::from_millis(11));
     assert_eq!(rx2.recv().unwrap().data, 222);
 }
 
 #[test]
 fn test_new_unbounded_weak() {
-    let (tx, rx) = channel::new_unbounded_dispatch();
+    let (tx, rx) = channel::new(None, true);
     let ox = rx.get_observer();
     tx.send_items(vec![1, 2, 3, 4]);
     tx.send(5);
@@ -108,7 +108,7 @@ fn test_new_unbounded_weak() {
 
 #[test]
 fn test_new_time_series_unbounded_weak() {
-    let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
+    let (tx, rx) = channel::new_time_series(None, true, NaiveDateTime::now(), 1.0);
     let ox = rx.get_observer();
     tx.send_items(vec![
         MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),

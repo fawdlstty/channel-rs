@@ -1,11 +1,16 @@
 pub mod time_series;
 
+use crate::utils::vec_utils::VecExt;
 use std::collections::HashMap;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use crate::utils::vec_utils::VecExt;
+#[cfg(feature = "metrics")]
+use {
+    crate::utils::metrics_utils::{HolderType, MetricsManager},
+    std::panic::Location,
+};
 
 #[derive(Debug)]
 pub(crate) struct UnboundedBuffer<T> {
@@ -447,47 +452,93 @@ pub(crate) struct Channel<T> {
     receiver_count: AtomicUsize,
     max_receiver_index: AtomicUsize,
     buf: Mutex<AnyBuffer<T>>,
+    #[cfg(feature = "metrics")]
+    metrics_mgr: MetricsManager,
 }
 
 impl<T> Channel<T> {
-    pub fn new(bounded: Option<usize>, dispatch: bool) -> (Sender<T>, Receiver<T>) {
+    pub fn new(
+        bounded: Option<usize>,
+        dispatch: bool,
+        #[cfg(feature = "metrics")] caller: &'static Location<'static>,
+    ) -> (Sender<T>, Receiver<T>) {
+        #[cfg(feature = "metrics")]
+        let (metrics_mgr, sender_metrics_idx, receiver_metrics_idx) = {
+            let mut metrics_mgr = MetricsManager::new();
+            let sender_idx = metrics_mgr.new_metrics_index(caller, HolderType::Sender);
+            let receiver_idx = metrics_mgr.new_metrics_index(caller, HolderType::Receiver);
+            (metrics_mgr, sender_idx, receiver_idx)
+        };
         let chan = NonNull::from(Box::leak(Box::new(Channel {
             sender_count: AtomicUsize::new(1),
             receiver_count: AtomicUsize::new(1),
             max_receiver_index: AtomicUsize::new(1),
             buf: Mutex::new(AnyBuffer::new(bounded, dispatch)),
+            #[cfg(feature = "metrics")]
+            metrics_mgr,
         })));
-        (Sender { chan }, Receiver { chan, index: 0 })
+        (
+            Sender {
+                chan,
+                #[cfg(feature = "metrics")]
+                metrics_idx: sender_metrics_idx,
+            },
+            Receiver {
+                chan,
+                index: 0,
+                #[cfg(feature = "metrics")]
+                metrics_idx: receiver_metrics_idx,
+            },
+        )
+    }
+
+    #[cfg(feature = "metrics")]
+    fn new_metrics_index(
+        &mut self,
+        caller: &'static Location<'static>,
+        holder_type: HolderType,
+    ) -> usize {
+        self.metrics_mgr.new_metrics_index(caller, holder_type)
     }
 }
 
 pub struct Sender<T> {
     chan: NonNull<Channel<T>>,
+    #[cfg(feature = "metrics")]
+    metrics_idx: usize,
 }
 
 impl<T: Clone + Sized> Sender<T> {
     pub fn send(&self, data: T) {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        let chan = unsafe { self.chan.clone().as_mut() };
+        let mut buf = chan.buf.lock().unwrap();
         buf.send(data);
     }
 
     pub fn send_items(&self, data: Vec<T>) {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        let chan = unsafe { self.chan.clone().as_mut() };
+        let mut buf = chan.buf.lock().unwrap();
         buf.send_items(data);
     }
 }
 
 impl<T> Clone for Sender<T> {
+    #[cfg(feature = "metrics")]
+    #[track_caller]
     fn clone(&self) -> Self {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        unsafe { &(*chan) }
-            .sender_count
-            .fetch_add(1, Ordering::SeqCst);
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.sender_count.fetch_add(1, Ordering::SeqCst);
         Self {
-            chan: self.chan.clone(),
+            chan: self.chan,
+            metrics_idx: chan.new_metrics_index(Location::caller(), HolderType::Sender),
         }
+    }
+
+    #[cfg(not(feature = "metrics"))]
+    fn clone(&self) -> Self {
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.sender_count.fetch_add(1, Ordering::SeqCst);
+        Self { chan: self.chan }
     }
 }
 
@@ -504,24 +555,24 @@ impl<T> Drop for Sender<T> {
 pub struct Receiver<T> {
     chan: NonNull<Channel<T>>,
     index: usize,
+    #[cfg(feature = "metrics")]
+    metrics_idx: usize,
 }
 
 impl<T: Clone + Sized> Receiver<T> {
     pub fn recv(&self) -> Option<T> {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
-        buf.recv(self.index)
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.buf.lock().unwrap().recv(self.index)
     }
 
     pub fn recv_items(&self, count: usize) -> Vec<T> {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
-        buf.recv_count(self.index, count, true)
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.buf.lock().unwrap().recv_count(self.index, count, true)
     }
 
     pub fn recv_items_weak(&self, max_count: usize) -> Vec<T> {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
+        let chan = unsafe { self.chan.clone().as_mut() };
+        let mut buf = chan.buf.lock().unwrap();
         buf.recv_count(self.index, max_count, false)
     }
 }
@@ -538,28 +589,34 @@ impl<T> Receiver<T> {
     }
 
     pub fn get_observer(&self) -> Observer<T> {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        unsafe { &(*chan) }
-            .receiver_count
-            .fetch_add(1, Ordering::SeqCst);
-        _ = unsafe { &(*chan) }
-            .max_receiver_index
-            .fetch_add(1, Ordering::SeqCst);
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
+        _ = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
         Observer { chan: self.chan }
     }
 }
 
 impl<T> Clone for Receiver<T> {
+    #[cfg(feature = "metrics")]
+    #[track_caller]
     fn clone(&self) -> Self {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        unsafe { &(*chan) }
-            .receiver_count
-            .fetch_add(1, Ordering::SeqCst);
-        let index = unsafe { &(*chan) }
-            .max_receiver_index
-            .fetch_add(1, Ordering::SeqCst);
-        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
-        buf.new_receiver(index);
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
+        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
+        chan.buf.lock().unwrap().new_receiver(index);
+        Self {
+            chan: self.chan,
+            index,
+            metrics_idx: chan.new_metrics_index(Location::caller(), HolderType::Sender),
+        }
+    }
+
+    #[cfg(not(feature = "metrics"))]
+    fn clone(&self) -> Self {
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
+        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
+        chan.buf.lock().unwrap().new_receiver(index);
         Self {
             chan: self.chan,
             index,
@@ -601,16 +658,26 @@ impl<T> Observer<T> {
         buf.len(usize::MAX) == 0
     }
 
+    #[cfg(feature = "metrics")]
+    #[track_caller]
     pub fn get_receiver(&self) -> Receiver<T> {
-        let chan: *mut Channel<T> = unsafe { std::mem::transmute(self.chan) };
-        unsafe { &(*chan) }
-            .receiver_count
-            .fetch_add(1, Ordering::SeqCst);
-        let index = unsafe { &(*chan) }
-            .max_receiver_index
-            .fetch_add(1, Ordering::SeqCst);
-        let mut buf = unsafe { &(*chan) }.buf.lock().unwrap();
-        buf.new_receiver(index);
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
+        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
+        chan.buf.lock().unwrap().new_receiver(index);
+        Receiver {
+            chan: self.chan,
+            index,
+            metrics_idx: chan.new_metrics_index(Location::caller(), HolderType::Receiver),
+        }
+    }
+
+    #[cfg(not(feature = "metrics"))]
+    pub fn get_receiver(&self) -> Receiver<T> {
+        let chan = unsafe { self.chan.clone().as_mut() };
+        chan.receiver_count.fetch_add(1, Ordering::SeqCst);
+        let index = chan.max_receiver_index.fetch_add(1, Ordering::SeqCst);
+        chan.buf.lock().unwrap().new_receiver(index);
         Receiver {
             chan: self.chan,
             index,
