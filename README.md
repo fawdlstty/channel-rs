@@ -110,18 +110,18 @@ sleep(Duration::from_millis(10));
 let d = rx2.recv().unwrap().data; // 222
 ```
 
-### weak receiver
+### observer
 
-Feature: When you want to hold a receiver, but do not receive data for the time being, you can get the receiver reference through the weak receiver
+Features: The observer does not receive pipeline data directly, but can detect the current cache usage and extract data directly from the cache. The observer and the receiver can be interchangeable
 
 ```rust
 let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
-let wrx = rx.weak();
+let ox = rx.get_observer();
 tx.send_items(vec![
     MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),
     MyTSStruct::new(NaiveDateTime::now() + Duration::milliseconds(10), 222),
 ]);
 let a = rx.recv().unwrap().data; // 111
-let tx2 = wrx.lock();
+let tx2 = ox.get_receiver();
 let b = tx2.len(); // 1
 ```

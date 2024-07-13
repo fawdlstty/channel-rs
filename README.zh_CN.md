@@ -110,18 +110,18 @@ sleep(Duration::from_millis(10));
 let d = rx2.recv().unwrap().data; // 222
 ```
 
-### 弱接收者
+### 观测者
 
-特性：当你希望持有一个接收者，但暂时不接收数据时，可通过弱接收者获取接收者引用
+特性：观测者不直接接收管道数据，但可以检测当前缓存使用量以及直接从缓存里提取数据。观测者可以和接收者互相转换
 
 ```rust
 let (tx, rx) = channel::new_time_series_unbounded_dispatch(NaiveDateTime::now(), 1.0);
-let wrx = rx.weak();
+let ox = rx.get_observer();
 tx.send_items(vec![
     MyTSStruct::new(NaiveDateTime::now() - Duration::milliseconds(10), 111),
     MyTSStruct::new(NaiveDateTime::now() + Duration::milliseconds(10), 222),
 ]);
 let a = rx.recv().unwrap().data; // 111
-let tx2 = wrx.lock();
+let tx2 = ox.get_receiver();
 let b = tx2.len(); // 1
 ```
