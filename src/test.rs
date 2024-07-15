@@ -126,3 +126,15 @@ fn test_new_time_series_unbounded_weak() {
         assert_eq!(recv_count, 1);
     }
 }
+
+#[test]
+fn test_new_unbounded_bidirectional() {
+    let (reqx, respx) = channel::new_unbounded_bidirectional();
+    let token = reqx.send_request(12);
+    assert!(reqx.get_response(token).is_none());
+    {
+        let (xtoken, xdata) = respx.take_request().unwrap();
+        respx.reply_response(xtoken, xdata + 1);
+    }
+    assert_eq!(reqx.get_response(token).unwrap(), 13);
+}
