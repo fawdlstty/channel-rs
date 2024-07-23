@@ -1,3 +1,4 @@
+pub mod asynchronous;
 pub mod bidirectional;
 pub mod time_series;
 

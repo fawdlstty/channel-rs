@@ -7,11 +7,14 @@ use std::panic::Location;
 pub mod channel;
 pub mod utils;
 
+pub use channel::asynchronous::{UnboundedReceiverAsync, UnboundedSenderAsync};
 pub use channel::bidirectional::{BDUnbRequester, BDUnbResponder};
+pub use channel::bidirectional::{BDUnbRequesterAsync, BDUnbResponderAsync};
 pub use channel::time_series::{GetDataTimeExt, TSObserver, TSReceiver, TSSender};
 pub use channel::{Observer, Receiver, Sender};
 
-use channel::bidirectional::BDUnbBuffer;
+use channel::asynchronous::UnboundedBufferAsync;
+use channel::bidirectional::{BDUnbBuffer, BDUnbBufferAsync};
 use channel::{time_series::TSChannel, Channel};
 use chrono::NaiveDateTime;
 
@@ -55,4 +58,13 @@ pub fn new_time_series<T: Clone + Send + GetDataTimeExt>(
 
 pub fn new_unbounded_bidirectional<T1, T2>() -> (BDUnbRequester<T1, T2>, BDUnbResponder<T1, T2>) {
     BDUnbBuffer::new()
+}
+
+pub fn new_unbounded_bidirectional_async<T1, T2>(
+) -> (BDUnbRequesterAsync<T1, T2>, BDUnbResponderAsync<T1, T2>) {
+    BDUnbBufferAsync::new()
+}
+
+pub fn new_unbounded_async<T1>() -> (UnboundedSenderAsync<T1>, UnboundedReceiverAsync<T1>) {
+    UnboundedBufferAsync::new()
 }

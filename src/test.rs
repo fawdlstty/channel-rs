@@ -129,12 +129,39 @@ fn test_new_time_series_unbounded_weak() {
 
 #[test]
 fn test_new_unbounded_bidirectional() {
-    let (reqx, respx) = channel::new_unbounded_bidirectional();
-    let token = reqx.send_request(12);
-    assert!(reqx.get_response(token).is_none());
+    let (mut reqx, mut respx) = channel::new_unbounded_bidirectional();
+    let mut reqy = reqx.clone();
+    reqx.send_request(12);
+    reqy.send_request(15);
+    assert!(reqx.try_get_response().is_none());
     {
-        let (xtoken, xdata) = respx.take_request().unwrap();
-        respx.reply_response(xtoken, xdata + 1);
+        let xdata = respx.try_take_request().unwrap();
+        respx.reply_response(xdata + 1);
+        let xdata = respx.try_take_request().unwrap();
+        respx.reply_response(xdata + 1);
     }
-    assert_eq!(reqx.get_response(token).unwrap(), 13);
+    assert_eq!(reqx.try_get_response().unwrap(), 13);
+    assert_eq!(reqy.try_get_response().unwrap(), 16);
 }
+
+// #[tokio::test]
+// async fn test_new_unbounded_bidirectional_async() {
+//     let (mut reqx, mut respx) = channel::new_unbounded_bidirectional_async();
+//     _ = tokio::join! {
+//         tokio::spawn(async move {
+//             let ret: usize = reqx.request(12).await;
+//             assert_eq!(ret, 13);
+//         }),
+//         tokio::spawn(async move {
+//             loop {
+//                 match respx.take_request() {
+//                     Some((data, sender)) => {
+//                         _ = sender.send(data);
+//                         break;
+//                     },
+//                     None => (),
+//                 }
+//             }
+//         })
+//     };
+// }
